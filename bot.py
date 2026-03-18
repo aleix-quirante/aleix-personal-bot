@@ -86,19 +86,23 @@ def enviar_whatsapp(contacto, mensaje):
     tell application "WhatsApp" to activate
     delay 1
     tell application "System Events"
-        key code 53 -- Escape para limpiar
-        delay 0.5
-        keystroke "f" using command down
-        delay 0.5
-        keystroke "a" using command down
-        key code 51 -- Borrar
-        keystroke "{contacto}"
-        delay 2 -- TIEMPO CRUCIAL para que aparezca el contacto
-        keystroke return -- Entrar al chat
-        delay 1
-        keystroke "{mensaje}"
-        delay 0.5
-        keystroke return -- Enviar
+        tell process "WhatsApp"
+            set frontmost to true
+            keystroke "f" using command down
+            delay 0.3
+            keystroke "a" using command down
+            key code 51 -- Borrar
+            keystroke "{contacto}"
+            delay 2.5 -- Tiempo para que aparezca el contacto
+            
+            key code 125 -- FLECHA ABAJO: Esto es lo que falta para seleccionar el primer resultado
+            delay 0.5
+            keystroke return -- Entrar al chat
+            delay 1
+            keystroke "{mensaje}"
+            delay 0.5
+            keystroke return -- Enviar
+        end tell
     end tell
     """
     try:
