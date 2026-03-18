@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 import asyncio
 import json
@@ -85,14 +86,19 @@ def enviar_whatsapp(contacto, mensaje):
     tell application "WhatsApp" to activate
     delay 1
     tell application "System Events"
-        keystroke "f" using command down -- Busca el contacto
+        key code 53 -- Escape para limpiar
         delay 0.5
+        keystroke "f" using command down
+        delay 0.5
+        keystroke "a" using command down
+        key code 51 -- Borrar
         keystroke "{contacto}"
-        delay 1.5
-        keystroke return -- Entra en el chat
-        delay 0.5
+        delay 2 -- TIEMPO CRUCIAL para que aparezca el contacto
+        keystroke return -- Entrar al chat
+        delay 1
         keystroke "{mensaje}"
-        keystroke return -- Envía el mensaje
+        delay 0.5
+        keystroke return -- Enviar
     end tell
     """
     try:
@@ -188,7 +194,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # NLP Router: Comprobar intención de enviar WhatsApp
     try:
-        intent_prompt = f"Analiza: '{user_message}'. ¿El usuario quiere enviar un mensaje de WhatsApp o mensaje de texto? Responde solo SI o NO."
+        intent_prompt = f"Analiza: '{user_message}'. ¿El usuario está pidiendo enviar un mensaje, decir algo o comunicar algo a una persona? Responde SI o NO. No importa si usa o no el nombre del asistente."
         intent_response = await asyncio.to_thread(
             ollama.chat,
             model=MODEL_NAME,
@@ -198,7 +204,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_whatsapp = intent_response['message']['content'].strip().upper()
         
         if "SI" in is_whatsapp:
-            extract_prompt = f"Extrae el destinatario y el mensaje de: '{user_message}'. Responde en JSON estricto: {{\"c\": \"nombre\", \"m\": \"mensaje\"}}."
+            extract_prompt = f"Extrae el destinatario y el mensaje de: '{user_message}'. \nREGLA DE ORO: 'Jarvis' es el nombre del ASISTENTE. NUNCA extraigas 'Jarvis' como contacto a menos que el usuario diga explícitamente 'envía un mensaje a mi contacto llamado Jarvis'. \nResponde solo JSON: {{\"c\": \"nombre_real\", \"m\": \"texto\"}}."
             extract_response = await asyncio.to_thread(
                 ollama.chat,
                 model=MODEL_NAME,
@@ -216,15 +222,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     contacto = data.get("c", "Desconocido")
                     mensaje = data.get("m", "")
                     
-                    await update.message.reply_text(f"Iniciando protocolo de mensajería para {contacto}...")
+                    # Limpieza de Nombre
+                    for palabra in ["Jarvis", "a la", "al", "a"]:
+                        if contacto.lower().startswith(palabra.lower() + " "):
+                            contacto = contacto[len(palabra)+1:].strip()
+                            
+                    if contacto.lower() == 'jarvis':
+                        contacto = "Desconocido"
+                    
+                    # Confirmar en Telegram
+                    bot_response = f"Entendido Aleix, buscando a {contacto} en WhatsApp para decirle: {mensaje}..."
+                    await update.message.reply_text(bot_response)
                     
                     # Ejecutar automatización UI
                     await asyncio.to_thread(enviar_whatsapp, contacto, mensaje)
-                    
-                    bot_response = f"Entendido, Aleix. He abierto WhatsApp y le he enviado el mensaje a {contacto}."
                         
                     save_message('assistant', bot_response)
-                    await update.message.reply_text(bot_response)
                     return
                 else:
                     raise ValueError("No JSON object found in response")
