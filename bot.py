@@ -134,19 +134,32 @@ async def enviar_whatsapp(contacto, mensaje, update):
         # Abrir WhatsApp directo en el chat
         subprocess.run(["open", url_whatsapp], check=True)
 
-        # AUMENTAMOS LA PAUSA: Le damos 3.5 segundos para asegurar que el Mac
-        # procesa la URL, abre la app, carga el chat y pega el texto en la caja.
+        # Pausa para asegurar que la app carga y el cursor está listo
         await asyncio.sleep(3.5)
 
-        # APPLESCRIPT MEJORADO: Forzamos la activación de WhatsApp primero y lanzamos el Enter
-        script_enter = """
-        tell application "WhatsApp" to activate
-        delay 0.5
-        tell application "System Events"
-            key code 36 -- Tecla Enter
-        end tell
-        """
-        subprocess.run(["osascript", "-e", script_enter], check=True)
+        # APPLESCRIPT A PRUEBA DE FALLOS:
+        # Pasamos cada línea de AppleScript como un argumento -e separado
+        # para evitar errores de tabulación o saltos de línea desde Python.
+        subprocess.run(
+            [
+                "osascript",
+                "-e",
+                'tell application "System Events"',
+                "-e",
+                'tell process "WhatsApp"',
+                "-e",
+                "set frontmost to true",
+                "-e",
+                "delay 0.5",
+                "-e",
+                "key code 36",
+                "-e",
+                "end tell",
+                "-e",
+                "end tell",
+            ],
+            check=True,
+        )
 
         await update.message.reply_text(
             f"✅ Protocolo completado. Mensaje entregado a {c_limpio.title()}."
