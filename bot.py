@@ -3,6 +3,7 @@ import logging
 import asyncio
 import ollama
 import subprocess
+import sqlite3
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.constants import ChatAction
@@ -13,6 +14,7 @@ load_dotenv()
 # --- CONFIGURACIÓN SEGURA ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 YOUR_USER_ID = int(os.getenv("USER_ID"))
+DB_PATH = os.getenv("DB_PATH", "jarvis_memory.db")
 MODEL_NAME = "llama3"
 
 logging.basicConfig(
@@ -21,13 +23,61 @@ logging.basicConfig(
     filename='bot.log'
 )
 
-# --- MEMORIA DEL BOT ---
-user_history = {}
-MAX_HISTORY = 10
+# --- BASE DE DATOS Y MEMORIA ---
 SYSTEM_PROMPT = {
     'role': 'system', 
     'content': 'Eres Jarvis, el asistente personal de Aleix. Responde SIEMPRE en español. Tu tono es profesional, eficiente, muy culto y con el ingenio británico de Paul Bettany en Iron Man. Sabes que corres localmente en un Mac Mini M4.'
 }
+
+def init_db():
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir and not os.path.exists(db_dir):
+        try:
+            os.makedirs(db_dir, exist_ok=True)
+        except Exception as e:
+            logging.error(f"No se pudo crear el directorio de la BD: {e}")
+            
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY,
+                role TEXT,
+                content TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Error inicializando BD: {e}")
+
+def save_message(role, content):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('INSERT INTO messages (role, content) VALUES (?, ?)', (role, content))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Error al guardar mensaje en BD: {e}")
+
+def get_context(limit=20):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT role, content FROM (
+                SELECT role, content, id FROM messages ORDER BY id DESC LIMIT ?
+            ) ORDER BY id ASC
+        ''', (limit,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [{'role': row[0], 'content': row[1]} for row in rows]
+    except Exception as e:
+        logging.error(f"Error al recuperar contexto de BD: {e}")
+        return []
 
 async def check_user(update: Update) -> bool:
     user_id = update.effective_user.id
@@ -38,31 +88,21 @@ async def check_user(update: Update) -> bool:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_user(update): return
-    user_id = update.effective_user.id
-    user_history[user_id] = [] # Resetear memoria al iniciar
-    await update.message.reply_text("A sus órdenes, Aleix. Mis sistemas están operativos y en línea en este Mac Mini M4. ¿En qué le puedo asistir?")
+    await update.message.reply_text("A sus órdenes, Aleix. Mis sistemas están operativos y en línea en este Mac Mini M4. He inicializado mi memoria persistente. ¿En qué le puedo asistir?")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_user(update): return
     
-    user_id = update.effective_user.id
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     
-    # Inicializar historial si no existe
-    if user_id not in user_history:
-        user_history[user_id] = []
-        
-    # Añadir mensaje del usuario al historial
     user_message = update.message.text
-    user_history[user_id].append({'role': 'user', 'content': user_message})
+    save_message('user', user_message)
     
-    # Mantener solo los últimos MAX_HISTORY mensajes para contexto
-    if len(user_history[user_id]) > MAX_HISTORY:
-        user_history[user_id] = user_history[user_id][-MAX_HISTORY:]
+    history = get_context(limit=20)
     
     try:
         # Construir mensajes con el prompt del sistema + historial
-        messages = [SYSTEM_PROMPT] + user_history[user_id]
+        messages = [SYSTEM_PROMPT] + history
         
         # Ejecutamos la llamada a Ollama en un hilo separado para no bloquear el bot
         response = await asyncio.to_thread(
@@ -73,8 +113,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         bot_response = response['message']['content']
         
-        # Añadir respuesta del bot al historial
-        user_history[user_id].append({'role': 'assistant', 'content': bot_response})
+        save_message('assistant', bot_response)
         
         await update.message.reply_text(bot_response)
     except Exception as e:
@@ -105,9 +144,10 @@ async def foto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Mis disculpas, señor. Ha ocurrido un error al intentar capturar la pantalla: {e}")
 
 if __name__ == '__main__':
+    init_db()
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("foto", foto_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Servidor Jarvis arrancando con su nueva personalidad...")
+    print("🚀 Servidor Jarvis arrancando con memoria conectada a SSD...")
     app.run_polling()
