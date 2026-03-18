@@ -91,19 +91,22 @@ async def enviar_whatsapp(contacto, mensaje, update):
         tell application "System Events"
             tell process "WhatsApp"
                 set frontmost to true
+                key code 53 -- Esc
+                delay 0.5
                 keystroke "f" using command down
                 delay 0.5
-                keystroke "a" using command down
+                keystroke "a" using command down -- Seleccionar todo lo anterior
                 key code 51 -- Borrar
                 keystroke "{contacto}"
-                delay 2
-                key code 125 -- Flecha Abajo
+                delay 2.5 -- Tiempo para que aparezcan los resultados
+                
+                key code 125 -- FLECHA ABAJO: Crucial para evitar el pitido
                 delay 0.5
-                key code 36 -- Enter real
-                delay 1
+                key code 36 -- ENTER para entrar al chat
+                delay 1.5
                 keystroke "{mensaje}"
                 delay 0.5
-                key code 36 -- Enter para enviar
+                key code 36 -- ENTER para enviar
             end tell
         end tell
     on error errMsg number errNum
