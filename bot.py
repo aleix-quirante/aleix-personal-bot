@@ -69,23 +69,35 @@ def get_context(limit=15):
 
 
 # --- AUTOMATIZACIÓN WHATSAPP (EL CORAZÓN) ---
-def buscar_contacto_mac(nombre_buscar):
+async def buscar_contacto_mac(nombre_buscar):
     applescript = f"""
     tell application "Contacts"
         try
-            set laPersona to first person whose name contains "{nombre_buscar}"
-            set elNumero to value of first phone of laPersona
-            return elNumero
+            set lasPersonas to every person whose name contains "{nombre_buscar}"
+            if (count of lasPersonas) is 0 then return "NO_ENCONTRADO"
+            
+            repeat with laPersona in lasPersonas
+                if (count of phones of laPersona) > 0 then
+                    return value of first phone of laPersona
+                end if
+            end repeat
+            return "NO_ENCONTRADO"
         on error
             return "NO_ENCONTRADO"
         end try
     end tell
     """
     try:
-        resultado = subprocess.run(
-            ["osascript", "-e", applescript], capture_output=True, text=True
+        resultado = await asyncio.create_subprocess_exec(
+            "osascript",
+            "-e",
+            applescript,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        numero_bruto = resultado.stdout.strip()
+        stdout, stderr = await resultado.communicate()
+        numero_bruto = stdout.decode().strip()
+
         if numero_bruto == "NO_ENCONTRADO" or not numero_bruto:
             return None
         return re.sub(r"\D", "", numero_bruto)
@@ -106,7 +118,7 @@ async def enviar_whatsapp(contacto, mensaje, update):
         f"Jarvis: Buscando a {c_limpio.title()} en sus contactos..."
     )
 
-    numero = buscar_contacto_mac(c_limpio)
+    numero = await buscar_contacto_mac(c_limpio)
 
     if not numero:
         await update.message.reply_text(
@@ -119,8 +131,10 @@ async def enviar_whatsapp(contacto, mensaje, update):
     url_whatsapp = f"whatsapp://send?phone={numero}&text={mensaje_codificado}"
 
     try:
-        subprocess.run(["open", url_whatsapp], check=True)
+        # Abrir WhatsApp (non-blocking)
+        await asyncio.create_subprocess_exec("open", url_whatsapp)
         await asyncio.sleep(2)
+
         script_enter = """
         tell application "System Events"
             tell process "WhatsApp"
@@ -129,7 +143,9 @@ async def enviar_whatsapp(contacto, mensaje, update):
             end tell
         end tell
         """
-        subprocess.run(["osascript", "-e", script_enter], check=True)
+        # Ejecutar AppleScript (non-blocking)
+        await asyncio.create_subprocess_exec("osascript", "-e", script_enter)
+
         await update.message.reply_text(
             f"✅ Protocolo completado. Mensaje entregado a {c_limpio.title()}."
         )
@@ -175,12 +191,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = json.loads(match.group())
                 await enviar_whatsapp(data["c"], data["m"], update)
                 return
-        except:
-            pass
+            else:
+                logging.error(f"No JSON found in Ollama response: {res_text}")
+                await update.message.reply_text(
+                    "❌ Jarvis: Disculpe señor, no pude procesar el contacto y mensaje."
+                )
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON: {e} - Response: {res_text}")
+            await update.message.reply_text(
+                "❌ Jarvis: Hubo un error procesando su petición de WhatsApp."
+            )
+        except Exception as e:
+            logging.error(f"Unexpected error in WhatsApp intent: {e}")
 
     # 2. Captura de pantalla
     if any(k in user_text.lower() for k in ["foto", "pantalla", "captura"]):
-        subprocess.run(["screencapture", "-x", "snap.png"])
+        await asyncio.create_subprocess_exec("screencapture", "-x", "snap.png")
+        # Give it a tiny moment to save the file
+        await asyncio.sleep(0.5)
         await update.message.reply_photo(
             photo=open("snap.png", "rb"), caption="Sistemas visuales activos."
         )
