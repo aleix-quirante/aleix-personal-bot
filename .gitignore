@@ -2,5 +2,4 @@
 venv/
 bot.log
 bot_output.log
-terminal_output.log
 __pycache__/
