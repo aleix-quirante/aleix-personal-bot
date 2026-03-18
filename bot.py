@@ -85,28 +85,32 @@ async def enviar_whatsapp(contacto, mensaje, update):
     await update.message.reply_text(f"Jarvis: Localizando a {contacto} en el sistema...")
     
     script_locate = f"""
-    tell application "WhatsApp" to activate
-    delay 1
-    tell application "System Events"
-        tell process "WhatsApp"
-            set frontmost to true
-            key code 53 -- Escape
-            delay 0.1
-            key code 53
-            delay 0.1
-            key code 53
-            delay 0.5
-            keystroke "f" using command down
-            delay 1
-            keystroke "a" using command down
-            key code 51 -- Borrar
-            keystroke "{contacto}"
-            delay 2
-            key code 125 -- Flecha Abajo
-            delay 0.5
-            keystroke return
+    try
+        tell application "WhatsApp" to activate
+        delay 1.5
+        tell application "System Events"
+            tell process "WhatsApp"
+                set frontmost to true
+                key code 53 -- Escape
+                delay 0.2
+                key code 53
+                delay 0.2
+                key code 53
+                delay 0.8
+                keystroke "f" using command down
+                delay 1.2
+                keystroke "a" using command down
+                key code 51 -- Borrar
+                keystroke "{contacto}"
+                delay 2.5
+                key code 125 -- Flecha Abajo
+                delay 0.8
+                keystroke return
+            end tell
         end tell
-    end tell
+    on error errMsg number errNum
+        error "Error de AppleScript (" & errNum & "): " & errMsg
+    end try
     """
     try:
         await asyncio.to_thread(subprocess.run, ["osascript", "-e", script_locate], check=True, capture_output=True, text=True)
@@ -114,14 +118,18 @@ async def enviar_whatsapp(contacto, mensaje, update):
         await update.message.reply_text("Jarvis: Escribiendo mensaje...")
         
         script_send = f"""
-        tell application "System Events"
-            tell process "WhatsApp"
-                set frontmost to true
-                keystroke "{mensaje}"
-                delay 0.5
-                keystroke return
+        try
+            tell application "System Events"
+                tell process "WhatsApp"
+                    set frontmost to true
+                    keystroke "{mensaje}"
+                    delay 0.8
+                    keystroke return
+                end tell
             end tell
-        end tell
+        on error errMsg number errNum
+            error "Error de AppleScript (" & errNum & "): " & errMsg
+        end try
         """
         await asyncio.to_thread(subprocess.run, ["osascript", "-e", script_send], check=True, capture_output=True, text=True)
         
@@ -237,16 +245,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 json_text = extract_response['message']['content']
-                # Clean string in Python to find first '{' and last '}'
-                start_idx = json_text.find('{')
-                end_idx = json_text.rfind('}')
-                if start_idx != -1 and end_idx != -1 and end_idx >= start_idx:
-                    json_str = json_text[start_idx:end_idx+1]
+                # Buscamos JSON ultra robusto
+                match = re.search(r'\{[^{}]*\}', json_text)
+                if not match:
+                    # Segundo intento
+                    extract_prompt2 = f"Responde SOLAMENTE el objeto JSON sin nada más para: '{user_message}'. \nJSON: {{\"c\": \"nombre_real\", \"m\": \"texto\"}}"
+                    extract_response2 = await asyncio.to_thread(
+                        ollama.chat,
+                        model=MODEL_NAME,
+                        messages=[{'role': 'user', 'content': extract_prompt2}]
+                    )
+                    json_text = extract_response2['message']['content']
+                    match = re.search(r'\{[^{}]*\}', json_text)
+
+                if match:
+                    json_str = match.group(0)
                     data = json.loads(json_str)
                     contacto = data.get("c", "Desconocido")
                     mensaje = data.get("m", "")
                     
-                    # Limpieza de Nombre
+                    # Filtro de contactos: si contiene Jarvis, forzar limpieza
+                    if "jarvis" in contacto.lower():
+                        # Tratar de encontrar el nombre real en el mensaje original si podemos
+                        palabras_limpias = [w for w in contacto.lower().split() if w not in ["jarvis", "a", "al", "a la", "para"]]
+                        if palabras_limpias:
+                            contacto = " ".join(palabras_limpias).title()
+                        else:
+                            contacto = "Desconocido"
+                            
                     for palabra in ["Jarvis", "a la", "al", "a"]:
                         if contacto.lower().startswith(palabra.lower() + " "):
                             contacto = contacto[len(palabra)+1:].strip()
@@ -261,7 +287,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         save_message('assistant', f"Mensaje enviado a {contacto}: {mensaje}")
                     return
                 else:
-                    raise ValueError("No JSON object found in response")
+                    raise ValueError("No JSON object found in response after retry")
             except Exception as e:
                 logging.error(f"Error al decodificar JSON de WhatsApp: {e}")
                 # Fallback al chat normal si falla el JSON
