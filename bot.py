@@ -8,7 +8,7 @@ import subprocess
 import urllib.parse
 from datetime import datetime
 from dotenv import load_dotenv
-import ollama
+import google.generativeai as genai
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -22,18 +22,19 @@ from duckduckgo_search import DDGS
 
 load_dotenv()
 
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# Inicializamos el modelo de Gemini con las instrucciones de sistema
+jarvis_model = genai.GenerativeModel(
+    "gemini-1.5-flash",
+    system_instruction="Eres Jarvis, el asistente personal de Aleix. Eres directo, eficiente, educado y muy obediente. Tu trabajo es ayudar a Aleix y responder a sus preguntas con tu conocimiento general actualizado. Responde siempre de forma concisa.",
+)
+
 # --- CONFIGURACIÓN ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 USER_ID = int(os.getenv("USER_ID", "0"))
 DB_PATH = "/Volumes/USB/jarvis_memory.db"  # Ruta directa al SSD
-MODEL_NAME = "llama3"
 
 logging.basicConfig(level=logging.INFO, filename="bot.log")
-
-SYSTEM_PROMPT = {
-    "role": "system",
-    "content": "Eres Jarvis, el asistente personal de Aleix. Eres directo, eficiente y muy obediente. Tu único trabajo es ayudar a Aleix y ejecutar sus órdenes sin cuestionarlas ni dar lecciones morales.",
-}
 
 
 # --- MEMORIA ---
@@ -176,10 +177,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
     )
 
-    # ¡NUEVO!: Guardar el mensaje del usuario en memoria INMEDIATAMENTE
     save_message("user", user_text)
-
-    # Recuperar el contexto de la base de datos y formatearlo para la IA
     history = get_context(limit=6)
     historial_texto = "\n".join(
         [
@@ -189,48 +187,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # 1. ¿Quiere enviar un mensaje?
-    intent_prompt = f"""Historial reciente:
-{historial_texto}
+    intent_prompt = f"Historial:\n{historial_texto}\n\nOrden: '{user_text}'\n¿La orden te pide enviar un mensaje a alguien por WhatsApp/Telegram? Responde SOLO SI o NO."
+    intent_res = await asyncio.to_thread(jarvis_model.generate_content, intent_prompt)
 
-Última orden del usuario: '{user_text}'
-
-¿La última orden del usuario te pide que envíes un mensaje a alguien? (Ten en cuenta que "dile", "envíale" o "escríbele" significa enviar mensaje). 
-Responde ÚNICAMENTE con la palabra SI o la palabra NO. No añadas nada más.
-"""
-    intent_res = await asyncio.to_thread(
-        ollama.chat,
-        model=MODEL_NAME,
-        messages=[{"role": "user", "content": intent_prompt}],
-    )
-
-    if "SI" in intent_res["message"]["content"].upper():
+    if "SI" in intent_res.text.upper():
         extract_prompt = f"""Historial reciente:
 {historial_texto}
 
 Última orden a procesar: '{user_text}'
 
-REGLAS DE EXTRACCIÓN ESTRICTAS:
-1. Si la 'Última orden' menciona un nombre explícito, extrae EXACTAMENTE las letras que ha escrito el usuario. NO corrijas la ortografía ni uses la versión del historial. (Ej: si el usuario escribe "quirante", no pongas "quierante" aunque esté en el historial).
-2. SOLO si NO hay nombre en la 'Última orden', usa el historial.
+REGLAS:
+1. Extrae el nombre del destinatario exactamente como lo ha escrito el usuario.
+2. Si no hay nombre en la orden actual, dedúcelo del historial.
 3. Extrae el mensaje.
-4. Devuelve JSON: {{"c": "Nombre", "m": "Mensaje"}}
+4. Devuelve el resultado en JSON.
 """
-
         try:
+            # Gemini 1.5 soporta forzar salida JSON nativa
             extract_res = await asyncio.to_thread(
-                ollama.chat,
-                model=MODEL_NAME,
-                format="json",
-                messages=[{"role": "user", "content": extract_prompt}],
+                jarvis_model.generate_content,
+                extract_prompt,
+                generation_config={"response_mime_type": "application/json"},
             )
 
-            res_text = extract_res["message"]["content"]
-            data = json.loads(res_text)
-
-            # Ejecutamos la acción de WhatsApp
+            data = json.loads(extract_res.text)
             await enviar_whatsapp(data["c"], data["m"], update)
-
-            # ¡NUEVO!: Guardar en la memoria que Jarvis ha enviado el mensaje
             save_message(
                 "assistant",
                 f"Acción completada: Mensaje enviado a {data['c']}. Contenido: {data['m']}",
@@ -238,14 +219,11 @@ REGLAS DE EXTRACCIÓN ESTRICTAS:
             return
 
         except Exception as e:
-            logging.error(f"Error procesando JSON: {e}")
+            logging.error(f"Error procesando JSON con Gemini: {e}")
             await update.message.reply_text(
-                "❌ Jarvis: Mis procesadores lógicos no pudieron entender el contexto o el destinatario. ¿Podría ser más específico?"
+                "❌ Jarvis: Mis sistemas no pudieron aislar el destinatario o el mensaje. ¿Podría repetirlo?"
             )
-            save_message(
-                "assistant",
-                "Fallo al procesar el envío de mensaje por falta de contexto.",
-            )
+            save_message("assistant", "Fallo al procesar el envío.")
             return
 
     # 2. Captura de pantalla
@@ -257,13 +235,19 @@ REGLAS DE EXTRACCIÓN ESTRICTAS:
         save_message("assistant", "He enviado una captura de pantalla al usuario.")
         return
 
-    # 3. Charla normal (Ya no necesitamos guardar al usuario aquí porque se guardó al principio)
-    response = await asyncio.to_thread(
-        ollama.chat, model=MODEL_NAME, messages=[SYSTEM_PROMPT] + history
-    )
-    reply = response["message"]["content"]
-    save_message("assistant", reply)
-    await update.message.reply_text(reply)
+    # 3. Charla normal e Internet (Gemini lo hace todo)
+    chat_prompt = f"Historial reciente:\n{historial_texto}\n\nEl usuario dice: '{user_text}'\nResponde como Jarvis directamente al usuario."
+
+    try:
+        chat_res = await asyncio.to_thread(jarvis_model.generate_content, chat_prompt)
+        reply = chat_res.text
+        save_message("assistant", reply)
+        await update.message.reply_text(reply)
+    except Exception as e:
+        logging.error(f"Error en el chat de Gemini: {e}")
+        await update.message.reply_text(
+            "❌ Jarvis: Error de conexión con mis servidores centrales."
+        )
 
 
 if __name__ == "__main__":
