@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from duckduckgo_search import DDGS
 
 load_dotenv()
 
@@ -79,6 +80,17 @@ def get_context(limit=20):
         logging.error(f"Error al recuperar contexto de BD: {e}")
         return []
 
+def web_search(query):
+    try:
+        results = DDGS().text(query, max_results=3)
+        context = ""
+        for i, res in enumerate(results, 1):
+            context += f"[{i}] {res['title']}: {res['body']} (Fuente: {res['href']})\n\n"
+        return context if context else "No se encontraron resultados relevantes."
+    except Exception as e:
+        logging.error(f"Error en búsqueda web: {e}")
+        return f"Ocurrió un error al buscar en la red: {e}"
+
 async def check_user(update: Update) -> bool:
     user_id = update.effective_user.id
     if user_id != YOUR_USER_ID:
@@ -89,6 +101,44 @@ async def check_user(update: Update) -> bool:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_user(update): return
     await update.message.reply_text("A sus órdenes, Aleix. Mis sistemas están operativos y en línea en este Mac Mini M4. He inicializado mi memoria persistente. ¿En qué le puedo asistir?")
+
+async def buscar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_user(update): return
+    
+    if not context.args:
+        await update.message.reply_text("Por favor, señor, indíqueme qué desea que busque. Ejemplo: /buscar clima en Madrid")
+        return
+        
+    query = " ".join(context.args)
+    temp_message = await update.message.reply_text(f"🔍 Conectando a la red global para buscar: {query}...")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    
+    try:
+        search_results = await asyncio.to_thread(web_search, query)
+        
+        prompt = f"Aquí tienes información actualizada de internet sobre '{query}':\n\n{search_results}\n\nBasándote estrictamente en esta información, responde de forma concisa al usuario."
+        messages = [
+            SYSTEM_PROMPT,
+            {'role': 'user', 'content': prompt}
+        ]
+        
+        response = await asyncio.to_thread(
+            ollama.chat,
+            model=MODEL_NAME,
+            messages=messages
+        )
+        
+        bot_response = response['message']['content']
+        
+        # Opcionalmente, guardamos la búsqueda y respuesta en la memoria
+        save_message('user', f"/buscar {query}")
+        save_message('assistant', bot_response)
+        
+        await temp_message.edit_text(bot_response)
+        
+    except Exception as e:
+        logging.error(f"Error en comando buscar: {e}")
+        await temp_message.edit_text("Mis disculpas, señor. Ha fallado mi enlace con la red global o mi procesamiento de los datos.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_user(update): return
@@ -148,6 +198,7 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("foto", foto_command))
+    app.add_handler(CommandHandler("buscar", buscar_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("🚀 Servidor Jarvis arrancando con memoria conectada a SSD...")
     app.run_polling()
