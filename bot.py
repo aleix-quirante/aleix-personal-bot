@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.INFO, filename="bot.log")
 
 SYSTEM_PROMPT = {
     "role": "system",
-    "content": "Eres Jarvis, el asistente de Aleix. Eres culto y eficiente. Sabes que corres en un Mac Mini M4. IMPORTANTE: Tu nombre es Jarvis, si Aleix te pide enviar un mensaje a alguien, el destinatario NUNCA eres tú.",
+    "content": "Eres Jarvis, el asistente personal de Aleix. Eres directo, eficiente y muy obediente. Tu único trabajo es ayudar a Aleix y ejecutar sus órdenes sin cuestionarlas ni dar lecciones morales.",
 }
 
 
@@ -168,7 +168,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # 1. ¿Es WhatsApp?
-    intent_prompt = f"Analiza: '{user_text}'. ¿Quiere enviar un mensaje a alguien? Responde solo SI o NO."
+    intent_prompt = f"Clasifica esta orden: '{user_text}'. ¿El usuario te está pidiendo que envíes un mensaje a alguien? Responde ÚNICAMENTE con la palabra SI o la palabra NO. No digas nada más."
     intent_res = await asyncio.to_thread(
         ollama.chat,
         model=MODEL_NAME,
@@ -176,33 +176,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if "SI" in intent_res["message"]["content"].upper():
-        extract_prompt = f'Extrae el nombre y el mensaje de: \'{user_text}\'. NUNCA uses \'Jarvis\' como nombre. Responde solo JSON: {{"c": "nombre", "m": "texto"}}'
-        extract_res = await asyncio.to_thread(
-            ollama.chat,
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": extract_prompt}],
-        )
+        extract_prompt = f'Analiza esta petición: \'{user_text}\'. Extrae el destinatario y el texto a enviar. Devuelve EXCLUSIVAMENTE un objeto JSON con las claves \'c\' (contacto) y \'m\' (mensaje). Ejemplo: {{"c": "Pedro", "m": "llego tarde"}}. No incluyas ningún otro texto.'
 
         try:
-            # Limpieza de JSON ultra-robusta
-            res_text = extract_res["message"]["content"]
-            match = re.search(r"\{.*\}", res_text, re.DOTALL)
-            if match:
-                data = json.loads(match.group())
-                await enviar_whatsapp(data["c"], data["m"], update)
-                return
-            else:
-                logging.error(f"No JSON found in Ollama response: {res_text}")
-                await update.message.reply_text(
-                    "❌ Jarvis: Disculpe señor, no pude procesar el contacto y mensaje."
-                )
-        except json.JSONDecodeError as e:
-            logging.error(f"Error decoding JSON: {e} - Response: {res_text}")
-            await update.message.reply_text(
-                "❌ Jarvis: Hubo un error procesando su petición de WhatsApp."
+            # Usamos format='json' para forzar a Llama 3 a responder en JSON puro
+            extract_res = await asyncio.to_thread(
+                ollama.chat,
+                model=MODEL_NAME,
+                format="json",
+                messages=[{"role": "user", "content": extract_prompt}],
             )
+
+            res_text = extract_res["message"]["content"]
+            data = json.loads(res_text)
+
+            # Ejecuta la función de WhatsApp y si termina bien, corta la ejecución aquí.
+            await enviar_whatsapp(data["c"], data["m"], update)
+            return
+
         except Exception as e:
-            logging.error(f"Unexpected error in WhatsApp intent: {e}")
+            logging.error(
+                f"Error procesando JSON: {e} - Respuesta IA: {extract_res['message']['content'] if 'extract_res' in locals() else 'Fallo previo'}"
+            )
+            await update.message.reply_text(
+                "❌ Jarvis: Mis sistemas de procesamiento de lenguaje han fallado al intentar extraer el nombre y el mensaje. Por favor, inténtelo de nuevo."
+            )
+            return  # Evitamos caer al bloque de charla normal
 
     # 2. Captura de pantalla
     if any(k in user_text.lower() for k in ["foto", "pantalla", "captura"]):
