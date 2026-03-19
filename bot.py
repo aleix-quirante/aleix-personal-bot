@@ -32,22 +32,13 @@ logging.basicConfig(level=logging.INFO, filename="bot.log")
 
 
 # --- MEMORIA ---
-def inicializar_memoria():
+def init_memory_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY, role TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)"
     )
     conn.commit()
-    conn.close()
-
-
-def init_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY, role TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)"
-    )
     conn.close()
 
 
@@ -74,21 +65,21 @@ def get_context(limit=15):
 
 
 # --- HERRAMIENTAS ---
-def buscar_contacto_mac(nombre_buscar):
+def search_mac_contact(search_name):
     # Dividimos el nombre en palabras sueltas
-    palabras = nombre_buscar.strip().split()
-    if not palabras:
+    words = search_name.strip().split()
+    if not words:
         return None
 
     # Construimos una condición flexible en AppleScript
     # Ej: name contains "antonio" and name contains "quirante"
-    condiciones = " and ".join([f'name contains "{p}"' for p in palabras])
+    conditions = " and ".join([f'name contains "{p}"' for p in words])
 
     applescript = f"""
     tell application "Contacts"
         try
             -- Búsqueda elástica: Ignora si hay segundos nombres o apellidos entre medias
-            set laPersona to first person whose {condiciones}
+            set laPersona to first person whose {conditions}
             set elNumero to value of first phone of laPersona
             return elNumero
         on error
@@ -97,15 +88,15 @@ def buscar_contacto_mac(nombre_buscar):
     end tell
     """
     try:
-        resultado = subprocess.run(
+        result = subprocess.run(
             ["osascript", "-e", applescript], capture_output=True, text=True
         )
-        numero_bruto = resultado.stdout.strip()
+        raw_number = result.stdout.strip()
 
-        if numero_bruto == "NO_ENCONTRADO" or not numero_bruto:
+        if raw_number == "NO_ENCONTRADO" or not raw_number:
             return None
 
-        return re.sub(r"\D", "", numero_bruto)
+        return re.sub(r"\D", "", raw_number)
     except Exception as e:
         logging.error(f"Error buscando contacto: {e}")
         return None
@@ -119,8 +110,8 @@ def send_whatsapp(contact: str, message: str) -> str:
     - message: El texto que quieres enviarle.
     """
     try:
-        # 1. Buscar en Mac (usamos la función buscar_contacto_mac que ya tienes definida)
-        number = buscar_contacto_mac(contact)
+        # 1. Buscar en Mac (usamos la función search_mac_contact que ya tienes definida)
+        number = search_mac_contact(contact)
         if not number:
             return f"Error: No encontré a {contact} en la agenda."
 
@@ -195,13 +186,13 @@ def get_weather(city: str) -> str:
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 
-def obtener_ultimo_modelo_flash():
+def get_latest_flash_model():
     """
     Se conecta a Google API y busca dinámicamente la versión más reciente
     del modelo Flash para auto-actualizar el bot.
     """
     try:
-        modelos_flash = []
+        flash_models = []
         # Iteramos sobre todos los modelos disponibles en la cuenta de Google
         for m in genai.list_models():
             if (
@@ -210,19 +201,19 @@ def obtener_ultimo_modelo_flash():
             ):
                 # Filtramos versiones experimentales si queremos estabilidad pura,
                 # o simplemente cogemos todos los flash.
-                modelos_flash.append(m.name)
+                flash_models.append(m.name)
 
-        if not modelos_flash:
+        if not flash_models:
             logging.warning("No se encontraron modelos Flash. Usando fallback.")
             return "gemini-1.5-flash"
 
         # Al ordenar alfabéticamente de forma inversa, 'gemini-3.0-flash'
         # quedará por encima de 'gemini-2.0-flash' o 'gemini-1.5-flash'
-        modelos_flash.sort(reverse=True)
+        flash_models.sort(reverse=True)
 
-        modelo_elegido = modelos_flash[0]
-        print(f"🤖 [SISTEMA] Jarvis auto-actualizado al modelo: {modelo_elegido}")
-        return modelo_elegido
+        chosen_model = flash_models[0]
+        print(f"🤖 [SISTEMA] Jarvis auto-actualizado al modelo: {chosen_model}")
+        return chosen_model
 
     except Exception as e:
         logging.error(f"Error descubriendo modelos: {e}")
@@ -231,7 +222,7 @@ def obtener_ultimo_modelo_flash():
 
 # Inicializamos el modelo de Gemini usando auto-descubrimiento
 jarvis_model = genai.GenerativeModel(
-    model_name=obtener_ultimo_modelo_flash(),
+    model_name=get_latest_flash_model(),
     tools=[
         send_whatsapp,
         web_search,
@@ -285,13 +276,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Le pasamos el historial de los últimos mensajes al chat (opcional, si quieres mantener el tuyo de SQLite)
         history = get_context(limit=4)
-        contexto = "\n".join([f"{m['role']}: {m['content']}" for m in history])
+        context_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
 
         # Mandamos el mensaje a Gemini. ¡ÉL DECIDE QUÉ HACER!
-        prompt_completo = f"Historial previo:\n{contexto}\n\nOrden actual: {user_text}"
-        respuesta = await asyncio.to_thread(chat.send_message, prompt_completo)
+        full_prompt = f"Historial previo:\n{context_text}\n\nOrden actual: {user_text}"
+        response = await asyncio.to_thread(chat.send_message, full_prompt)
 
-        reply = respuesta.text
+        reply = response.text
 
         # Guardamos y respondemos
         save_message("user", user_text)
@@ -306,8 +297,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 if __name__ == "__main__":
-    inicializar_memoria()
-    init_db()
+    init_memory_db()
     print("🚀 Jarvis en línea. Mac Mini M4 bajo control.")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
