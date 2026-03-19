@@ -111,22 +111,22 @@ def buscar_contacto_mac(nombre_buscar):
         return None
 
 
-def send_whatsapp(contacto: str, mensaje: str) -> str:
+def send_whatsapp(contact: str, message: str) -> str:
     """
     Usa esta herramienta EXCLUSIVAMENTE cuando el usuario te pida enviar un mensaje a alguien por WhatsApp o Telegram.
     Argumentos:
-    - contacto: El nombre de la persona (ej. 'Iñaki', 'Noemi Arans').
-    - mensaje: El texto que quieres enviarle.
+    - contact: El nombre de la persona (ej. 'Iñaki', 'Noemi Arans').
+    - message: El texto que quieres enviarle.
     """
     try:
         # 1. Buscar en Mac (usamos la función buscar_contacto_mac que ya tienes definida)
-        numero = buscar_contacto_mac(contacto)
-        if not numero:
-            return f"Error: No encontré a {contacto} en la agenda."
+        number = buscar_contacto_mac(contact)
+        if not number:
+            return f"Error: No encontré a {contact} en la agenda."
 
         # 2. AppleScript y URL Deep Link
-        texto_url = urllib.parse.quote(mensaje)
-        url_whatsapp = f"whatsapp://send?phone={numero}&text={texto_url}"
+        url_text = urllib.parse.quote(message)
+        url_whatsapp = f"whatsapp://send?phone={number}&text={url_text}"
         subprocess.run(["open", url_whatsapp], check=True)
 
         import time
@@ -139,37 +139,37 @@ def send_whatsapp(contacto: str, mensaje: str) -> str:
         tell application "System Events" to key code 36
         """
         subprocess.run(["osascript", "-e", script_enter], check=True)
-        return f"Éxito: Mensaje enviado a {contacto}."
+        return f"Éxito: Mensaje enviado a {contact}."
     except Exception as e:
         return f"Error al enviar: {str(e)}"
 
 
-def web_search(consulta: str) -> str:
+def web_search(query: str) -> str:
     """
     Usa esta herramienta para buscar información en internet (el clima, noticias actuales, datos que no sepas).
     Argumentos:
-    - consulta: Los términos de búsqueda.
+    - query: Los términos de búsqueda.
     """
     try:
         with DDGS() as ddgs:
-            resultados = list(ddgs.text(consulta, max_results=3))
-        if not resultados:
+            results = list(ddgs.text(query, max_results=3))
+        if not results:
             return "No hay resultados en internet."
-        return "\n".join([f"- {r['title']}: {r['body']}" for r in resultados])
+        return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
     except Exception as e:
         return f"Error buscando en internet: {str(e)}"
 
 
-def calculator(operacion: str) -> str:
+def calculator(operation: str) -> str:
     """
     Usa esta herramienta para resolver operaciones matemáticas complejas.
     Argumentos:
-    - operacion: La expresión matemática (ej. '25 * 4 + 10').
+    - operation: La expresión matemática (ej. '25 * 4 + 10').
     """
     try:
         # Solo evalúa matemáticas básicas por seguridad
-        resultado = eval(operacion, {"__builtins__": None}, {})
-        return f"El resultado es {resultado}"
+        result = eval(operation, {"__builtins__": None}, {})
+        return f"El resultado es {result}"
     except Exception as e:
         return "Error en el cálculo."
 
@@ -183,9 +183,9 @@ def get_weather(city: str) -> str:
     try:
         # wttr.in devuelve el tiempo en formato texto plano rápido y gratis
         url = f"https://wttr.in/{city}?format=4&M"
-        respuesta = requests.get(url, timeout=5)
-        if respuesta.status_code == 200:
-            return f"El tiempo actual en {city} es: {respuesta.text}"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            return f"El tiempo actual en {city} es: {response.text}"
         return "No pude obtener los datos meteorológicos del servidor."
     except Exception as e:
         return f"Error de conexión al buscar el clima: {str(e)}"
