@@ -137,13 +137,13 @@ async def send_whatsapp(contact: str, message: str) -> str:
         except Exception as e:
             return f"Error: No se pudo abrir la aplicación de WhatsApp. Verifica que está instalada."
 
-        await asyncio.sleep(5)  # Esperar a que la app abra sin bloquear el bot
+        await asyncio.sleep(6)  # Esperar a que la app abra sin bloquear el bot
 
         print(f"DEBUG: Intentando enviar mensaje a {number}...")
 
         # Inyección a nivel de hardware
         logging.info(
-            "Iniciando toma de control de teclado (Nate Gentile protocol) para pulsar Enter..."
+            "Iniciando inyección de teclado hardware (Protocolo OpenClaw) para pulsar Enter..."
         )
         pyautogui.press("enter")
 
