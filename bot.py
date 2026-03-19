@@ -253,9 +253,9 @@ def get_latest_flash_model():
         return "gemini-1.5-flash"  # Fallback de seguridad
 
 
-# Inicializamos el modelo de Gemini usando auto-descubrimiento
+# Inicializamos el modelo de Gemini usando auto-descubrimiento (forzado a Pro para mayor inteligencia con herramientas)
 jarvis_model = genai.GenerativeModel(
-    model_name=get_latest_flash_model(),
+    model_name="gemini-1.5-pro",
     tools=[
         send_whatsapp,
         web_search,
@@ -268,7 +268,8 @@ jarvis_model = genai.GenerativeModel(
     2. TIENES TOTALMENTE PROHIBIDO usar prefijos robóticos. NUNCA empieces tus frases con "Acción completada:", "Resultado:", "Jarvis:", "Sistema:", o "Mensaje:".
     3. Cuando uses una herramienta (como enviar un WhatsApp o buscar en internet), simplemente dile a Aleix lo que has hecho o lo que has encontrado, integrándolo en tu respuesta como un humano.
     4. Sé conciso y educado.
-    5. NUNCA intentes usar web_search para buscar números de teléfono de personas. Los números de teléfono solo pueden obtenerse a través de la agenda local del Mac.""",
+    5. NUNCA intentes usar web_search para buscar números de teléfono de personas. Los números de teléfono solo pueden obtenerse a través de la agenda local del Mac.
+    IMPORTANTE: Eres 'Jarvis', un agente de IA que se ejecuta de forma LOCAL en un Mac Mini M4. TIENES permisos totales y acceso a herramientas para controlar el sistema operativo, leer contactos locales, abrir aplicaciones y simular pulsaciones de teclado. NUNCA digas que eres un modelo de lenguaje aislado o que no tienes acceso al ordenador. Si el usuario te pide una acción, EJECUTA la herramienta correspondiente sin dudar ni pedir disculpas.""",
 )
 
 
