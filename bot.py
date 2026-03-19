@@ -22,13 +22,6 @@ from duckduckgo_search import DDGS
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-# Inicializamos el modelo de Gemini con las instrucciones de sistema
-jarvis_model = genai.GenerativeModel(
-    "gemini-1.5-flash",
-    system_instruction="Eres Jarvis, el asistente personal de Aleix. Eres directo, eficiente, educado y muy obediente. Tu trabajo es ayudar a Aleix y responder a sus preguntas con tu conocimiento general actualizado. Responde siempre de forma concisa.",
-)
-
 # --- CONFIGURACIÓN ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 USER_ID = int(os.getenv("USER_ID", "0"))
@@ -69,7 +62,7 @@ def get_context(limit=15):
         return []
 
 
-# --- AUTOMATIZACIÓN WHATSAPP (EL CORAZÓN) ---
+# --- HERRAMIENTAS ---
 def buscar_contacto_mac(nombre_buscar):
     # Dividimos el nombre en palabras sueltas
     palabras = nombre_buscar.strip().split()
@@ -107,61 +100,77 @@ def buscar_contacto_mac(nombre_buscar):
         return None
 
 
-async def enviar_whatsapp(contacto, mensaje, update):
-    c_limpio = (
-        contacto.lower()
-        .replace("jarvis", "")
-        .replace("al ", "")
-        .replace("a ", "")
-        .strip()
-    )
-    await update.message.reply_text(
-        f"Jarvis: Buscando a {c_limpio.title()} en sus contactos..."
-    )
-
-    numero = buscar_contacto_mac(c_limpio)
-
-    if not numero:
-        await update.message.reply_text(
-            f"❌ Jarvis: Disculpe, señor. No encuentro a nadie llamado '{c_limpio.title()}' en su agenda."
-        )
-        return False
-
-    logging.info(f"Enviando WhatsApp a {c_limpio} ({numero})")
-    mensaje_codificado = urllib.parse.quote(mensaje)
-    url_whatsapp = f"whatsapp://send?phone={numero}&text={mensaje_codificado}"
-
+def herramienta_whatsapp(contacto: str, mensaje: str) -> str:
+    """
+    Usa esta herramienta EXCLUSIVAMENTE cuando el usuario te pida enviar un mensaje a alguien por WhatsApp o Telegram.
+    Argumentos:
+    - contacto: El nombre de la persona (ej. 'Iñaki', 'Noemi Arans').
+    - mensaje: El texto que quieres enviarle.
+    """
     try:
-        # Abrir WhatsApp directo en el chat
+        # 1. Buscar en Mac (usamos la función buscar_contacto_mac que ya tienes definida)
+        numero = buscar_contacto_mac(contacto)
+        if not numero:
+            return f"Error: No encontré a {contacto} en la agenda."
+
+        # 2. AppleScript y URL Deep Link
+        texto_url = urllib.parse.quote(mensaje)
+        url_whatsapp = f"whatsapp://send?phone={numero}&text={texto_url}"
         subprocess.run(["open", url_whatsapp], check=True)
 
-        # Pausa para asegurar que la app carga y el cursor está listo
-        await asyncio.sleep(3.5)
+        import time
 
-        # APPLESCRIPT SIMPLIFICADO AL MÁXIMO
-        subprocess.run(
-            [
-                "osascript",
-                "-e",
-                'tell application "WhatsApp" to activate',
-                "-e",
-                "delay 0.8",
-                "-e",
-                'tell application "System Events" to key code 36',
-            ],
-            check=True,
-        )
+        time.sleep(3.5)  # Pausa sincrona
 
-        await update.message.reply_text(
-            f"✅ Protocolo completado. Mensaje entregado a {c_limpio.title()}."
-        )
-        return True
-
+        script_enter = """
+        tell application "WhatsApp" to activate
+        delay 0.8
+        tell application "System Events" to key code 36
+        """
+        subprocess.run(["osascript", "-e", script_enter], check=True)
+        return f"Éxito: Mensaje enviado a {contacto}."
     except Exception as e:
-        await update.message.reply_text(
-            f"❌ Error crítico en los servos de WhatsApp: {e}"
-        )
-        return False
+        return f"Error al enviar: {str(e)}"
+
+
+def herramienta_internet(consulta: str) -> str:
+    """
+    Usa esta herramienta para buscar información en internet (el clima, noticias actuales, datos que no sepas).
+    Argumentos:
+    - consulta: Los términos de búsqueda.
+    """
+    try:
+        with DDGS() as ddgs:
+            resultados = list(ddgs.text(consulta, max_results=3))
+        if not resultados:
+            return "No hay resultados en internet."
+        return "\n".join([f"- {r['title']}: {r['body']}" for r in resultados])
+    except Exception as e:
+        return f"Error buscando en internet: {str(e)}"
+
+
+def herramienta_calculadora(operacion: str) -> str:
+    """
+    Usa esta herramienta para resolver operaciones matemáticas complejas.
+    Argumentos:
+    - operacion: La expresión matemática (ej. '25 * 4 + 10').
+    """
+    try:
+        # Solo evalúa matemáticas básicas por seguridad
+        resultado = eval(operacion, {"__builtins__": None}, {})
+        return f"El resultado es {resultado}"
+    except Exception as e:
+        return "Error en el cálculo."
+
+
+# Inicializamos el modelo de Gemini con las instrucciones de sistema
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+jarvis_model = genai.GenerativeModel(
+    model_name="gemini-1.5-flash",
+    tools=[herramienta_whatsapp, herramienta_internet, herramienta_calculadora],
+    system_instruction="Eres Jarvis. Eres inteligente, conversacional y directo. Tienes acceso a herramientas del sistema de Aleix. Si usas una herramienta, informa al usuario del resultado de forma natural. NUNCA reveles que usas funciones o código, actúa como si lo hicieras tú mismo.",
+)
 
 
 # --- PROCESAMIENTO ---
@@ -177,56 +186,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
     )
 
-    save_message("user", user_text)
-    history = get_context(limit=6)
-    historial_texto = "\n".join(
-        [
-            f"{'Usuario' if m['role']=='user' else 'Jarvis'}: {m['content']}"
-            for m in history
-        ]
-    )
-
-    # 1. ¿Quiere enviar un mensaje?
-    intent_prompt = f"Historial:\n{historial_texto}\n\nOrden: '{user_text}'\n¿La orden te pide enviar un mensaje a alguien por WhatsApp/Telegram? Responde SOLO SI o NO."
-    intent_res = await asyncio.to_thread(jarvis_model.generate_content, intent_prompt)
-
-    if "SI" in intent_res.text.upper():
-        extract_prompt = f"""Historial reciente:
-{historial_texto}
-
-Última orden a procesar: '{user_text}'
-
-REGLAS:
-1. Extrae el nombre del destinatario exactamente como lo ha escrito el usuario.
-2. Si no hay nombre en la orden actual, dedúcelo del historial.
-3. Extrae el mensaje.
-4. Devuelve el resultado en JSON.
-"""
-        try:
-            # Gemini 1.5 soporta forzar salida JSON nativa
-            extract_res = await asyncio.to_thread(
-                jarvis_model.generate_content,
-                extract_prompt,
-                generation_config={"response_mime_type": "application/json"},
-            )
-
-            data = json.loads(extract_res.text)
-            await enviar_whatsapp(data["c"], data["m"], update)
-            save_message(
-                "assistant",
-                f"Acción completada: Mensaje enviado a {data['c']}. Contenido: {data['m']}",
-            )
-            return
-
-        except Exception as e:
-            logging.error(f"Error procesando JSON con Gemini: {e}")
-            await update.message.reply_text(
-                "❌ Jarvis: Mis sistemas no pudieron aislar el destinatario o el mensaje. ¿Podría repetirlo?"
-            )
-            save_message("assistant", "Fallo al procesar el envío.")
-            return
-
-    # 2. Captura de pantalla
+    # Captura de pantalla (mantenemos esto porque es muy específico y no está en las herramientas de Gemini por ahora)
     if any(k in user_text.lower() for k in ["foto", "pantalla", "captura"]):
         subprocess.run(["screencapture", "-x", "snap.png"])
         await update.message.reply_photo(
@@ -235,18 +195,29 @@ REGLAS:
         save_message("assistant", "He enviado una captura de pantalla al usuario.")
         return
 
-    # 3. Charla normal e Internet (Gemini lo hace todo)
-    chat_prompt = f"Historial reciente:\n{historial_texto}\n\nEl usuario dice: '{user_text}'\nResponde como Jarvis directamente al usuario."
+    # Instanciamos un chat con ejecución automática de herramientas
+    chat = jarvis_model.start_chat(enable_automatic_function_calling=True)
 
     try:
-        chat_res = await asyncio.to_thread(jarvis_model.generate_content, chat_prompt)
-        reply = chat_res.text
+        # Le pasamos el historial de los últimos mensajes al chat (opcional, si quieres mantener el tuyo de SQLite)
+        history = get_context(limit=4)
+        contexto = "\n".join([f"{m['role']}: {m['content']}" for m in history])
+
+        # Mandamos el mensaje a Gemini. ¡ÉL DECIDE QUÉ HACER!
+        prompt_completo = f"Historial previo:\n{contexto}\n\nOrden actual: {user_text}"
+        respuesta = await asyncio.to_thread(chat.send_message, prompt_completo)
+
+        reply = respuesta.text
+
+        # Guardamos y respondemos
+        save_message("user", user_text)
         save_message("assistant", reply)
         await update.message.reply_text(reply)
+
     except Exception as e:
-        logging.error(f"Error en el chat de Gemini: {e}")
+        logging.error(f"Error crítico en el Agente: {e}")
         await update.message.reply_text(
-            "❌ Jarvis: Error de conexión con mis servidores centrales."
+            "❌ Mis sistemas principales han colapsado temporalmente."
         )
 
 
