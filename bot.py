@@ -71,6 +71,10 @@ def search_mac_contact(search_name):
     if not words:
         return None
 
+    logging.info(f"Buscando en Contactos de macOS: {search_name}")
+    # Nota sobre permisos: Asegúrate de que la Terminal/VSCode/Python tengan permisos
+    # en Ajustes del Sistema -> Privacidad y Seguridad -> Contactos
+
     # Construimos una condición flexible en AppleScript
     # Ej: name contains "antonio" and name contains "quirante"
     conditions = " and ".join([f'name contains "{p}"' for p in words])
@@ -83,7 +87,14 @@ def search_mac_contact(search_name):
             set elNumero to value of first phone of laPersona
             return elNumero
         on error
-            return "NO_ENCONTRADO"
+            try
+                -- Fallback: Buscar solo por la primera palabra (nombre de pila)
+                set laPersona to first person whose name contains "{words[0]}"
+                set elNumero to value of first phone of laPersona
+                return elNumero
+            on error
+                return "NO_ENCONTRADO"
+            end try
         end try
     end tell
     """
@@ -106,8 +117,8 @@ def send_whatsapp(contact: str, message: str) -> str:
     """
     Usa esta herramienta EXCLUSIVAMENTE cuando el usuario te pida enviar un mensaje a alguien por WhatsApp o Telegram.
     Argumentos:
-    - contact: El nombre de la persona (ej. 'Iñaki', 'Noemi Arans').
-    - message: El texto que quieres enviarle.
+    - contact: El nombre de la persona EXACTO (ej. 'Iñaki', 'Noemi Arans'). Separa adecuadamente el nombre del resto de la frase u órdenes anexas.
+    - message: El texto completo que quieres enviarle.
     """
     try:
         # 1. Buscar en Mac (usamos la función search_mac_contact que ya tienes definida)
