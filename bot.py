@@ -123,33 +123,23 @@ async def send_whatsapp(contact: str, message: str) -> str:
     - message: El texto completo que quieres enviarle.
     """
     try:
-        # 1. Buscar en Mac (usamos la función search_mac_contact que ya tienes definida)
-        number = search_mac_contact(contact)
-        if not number:
-            return f"Error: No encontré a {contact} en la agenda."
+        import interpreter
 
-        # 2. AppleScript y URL Deep Link
-        url_text = urllib.parse.quote(message)
-        url_whatsapp = f"whatsapp://send?phone={number}&text={url_text}"
+        # Configuración de seguridad (auto_run en True permite que la IA actúe sin pedir permiso en la terminal)
+        interpreter.auto_run = True
+        interpreter.system_message += "\nEstás ejecutándote en un Mac Mini M4. Tienes permiso total para usar Python, AppleScript o controlar el ratón y teclado para cumplir las órdenes del usuario."
 
-        try:
-            subprocess.run(["open", url_whatsapp], check=True)
-        except Exception as e:
-            return f"Error: No se pudo abrir la aplicación de WhatsApp. Verifica que está instalada."
+        # Le pasamos la orden natural para que el Agente decida cómo hacerlo
+        prompt_agente = f"Abre la aplicación de WhatsApp en este Mac, busca el contacto {contact} y envíale exactamente este mensaje: '{message}'. Hazlo controlando el ordenador."
 
-        await asyncio.sleep(6)  # Esperar a que la app abra sin bloquear el bot
+        logging.info(f"Delegando tarea a Open Interpreter: {prompt_agente}")
 
-        print(f"DEBUG: Intentando enviar mensaje a {number}...")
+        # Ejecutar en hilo separado para no bloquear el bot de Telegram
+        await asyncio.to_thread(interpreter.chat, prompt_agente)
 
-        # Inyección a nivel de hardware
-        logging.info(
-            "Iniciando inyección de teclado hardware (Protocolo OpenClaw) para pulsar Enter..."
-        )
-        pyautogui.press("enter")
-
-        return f"Éxito: Mensaje enviado a {contact}."
+        return f"Éxito: Orden delegada al motor autónomo (Nate Gentile protocol) para contactar a {contact}."
     except Exception as e:
-        return f"Error al enviar: {str(e)}"
+        return f"Error al enviar vía Open Interpreter: {str(e)}"
 
 
 def web_search(query: str) -> str:
