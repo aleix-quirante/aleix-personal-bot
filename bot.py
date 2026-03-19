@@ -182,6 +182,22 @@ def get_weather(city: str) -> str:
         return f"Error de conexión al buscar el clima: {str(e)}"
 
 
+# --- PREVENCIÓN DE REPOSO ---
+def prevent_system_sleep():
+    """
+    Usa el comando nativo de macOS 'caffeinate' para evitar que el Mac Mini M4
+    entre en reposo mientras el bot esté en ejecución, asegurando operatividad 24/7.
+    -i: evita reposo del sistema.
+    -m: evita reposo del monitor.
+    -s: evita reposo del equipo al estar conectado a corriente.
+    """
+    try:
+        subprocess.Popen(["caffeinate", "-ims"])
+        logging.info("Sistema caffeinate activado. Reposo prevenido.")
+    except Exception as e:
+        logging.error(f"No se pudo activar caffeinate: {e}")
+
+
 # Inicializamos el modelo de Gemini con las instrucciones de sistema
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -304,4 +320,5 @@ if __name__ == "__main__":
     print("🚀 Jarvis en línea. Mac Mini M4 bajo control.")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    prevent_system_sleep()
     app.run_polling()
