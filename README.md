@@ -2,7 +2,7 @@
 
 Este proyecto es un bot de Telegram diseñado para actuar como **Jarvis**, el asistente de IA personal de Aleix. Se ejecuta de forma local en un Mac Mini M4 y utiliza la API de **Gemini** (Google Generative AI) con **Function Calling nativo** (Arquitectura de Agentes) para procesar lenguaje natural, buscar información, realizar cálculos y automatizar el sistema.
 
-El bot tiene una personalidad predefinida: responde con un tono inteligente, conversacional y directo, imitando al Jarvis de Iron Man.
+El bot tiene una personalidad predefinida: responde con un tono inteligente, conversacional y directo, imitando al Jarvis de Iron Man. Tiene reglas estrictas para comportarse de forma 100% natural, omitiendo cualquier prefijo robótico como "Acción completada:" o "Resultado:".
 
 ## ✨ Características Principales
 
