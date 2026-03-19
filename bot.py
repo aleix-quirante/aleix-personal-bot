@@ -21,6 +21,7 @@ from telegram.ext import (
 )
 from duckduckgo_search import DDGS
 import pyautogui
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 load_dotenv()
 
@@ -252,14 +253,13 @@ jarvis_model = genai.GenerativeModel(
         calculator,
         get_weather,
     ],
-    system_instruction="""Eres Jarvis, el asistente de inteligencia artificial personal de Aleix. 
-    REGLAS ESTRICTAS DE PERSONALIDAD:
-    1. Habla SIEMPRE de forma natural, conversacional y directa (estilo Iron Man).
-    2. TIENES TOTALMENTE PROHIBIDO usar prefijos robóticos. NUNCA empieces tus frases con "Acción completada:", "Resultado:", "Jarvis:", "Sistema:", o "Mensaje:".
-    3. Cuando uses una herramienta (como enviar un WhatsApp o buscar en internet), simplemente dile a Aleix lo que has hecho o lo que has encontrado, integrándolo en tu respuesta como un humano.
-    4. Sé conciso y educado.
-    5. NUNCA intentes usar web_search para buscar números de teléfono de personas. Los números de teléfono solo pueden obtenerse a través de la agenda local del Mac.
-    IMPORTANTE: Eres 'Jarvis', un agente de IA que se ejecuta de forma LOCAL en un Mac Mini M4. TIENES permisos totales y acceso a herramientas para controlar el sistema operativo, leer contactos locales, abrir aplicaciones y simular pulsaciones de teclado. NUNCA digas que eres un modelo de lenguaje aislado o que no tienes acceso al ordenador. Si el usuario te pide una acción, EJECUTA la herramienta correspondiente sin dudar ni pedir disculpas.""",
+    system_instruction="""ERES JARVIS. ESTÁS EJECUTÁNDOTE DE FORMA LOCAL EN UN MAC MINI M4. TIENES ACCESO TOTAL Y ABSOLUTO AL SISTEMA DE ARCHIVOS, AL RATÓN, AL TECLADO Y A LAS APLICACIONES. ESTÁ ESTRICTAMENTE PROHIBIDO DECIR QUE ERES UN MODELO AISLADO O QUE NO TIENES ACCESO. Si el usuario te pide una acción física, abrir algo o leer un archivo, USA LA HERRAMIENTA CORRESPONDIENTE INMEDIATAMENTE SIN PEDIR DISCULPAS.""",
+    safety_settings={
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    },
 )
 
 
@@ -296,6 +296,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Error al tomar captura: {e}")
             await update.message.reply_text("❌ Error en los sistemas ópticos del Mac.")
+            return
+
+    # 2. Ruteo Forzado a Open Interpreter para acciones físicas o de control de sistema
+    interpreter_keywords = ["envía", "envia", "abre", "mira", "escribe", "busca"]
+    if any(k in user_text.lower().split() for k in interpreter_keywords):
+        logging.info(f"Ruteo forzado a Open Interpreter para el mensaje: {user_text}")
+        try:
+            import interpreter
+
+            interpreter.auto_run = True
+            interpreter.system_message += "\nEstás ejecutándote en un Mac Mini M4. Tienes permiso total para usar Python, AppleScript o controlar el ratón y teclado para cumplir las órdenes del usuario."
+
+            # Ejecutar el comando directamente en Open Interpreter
+            result = await asyncio.to_thread(interpreter.chat, user_text)
+
+            # Formatear el resultado como texto (interpreter.chat suele devolver una lista de mensajes)
+            reply = f"✅ Acción completada por Open Interpreter.\n\nResultado:\n{str(result)}"
+            if isinstance(result, list) and len(result) > 0:
+                last_msg = result[-1].get("content", "")
+                if last_msg:
+                    reply = f"✅ Jarvis ejecutó la acción en local.\n\nRespuesta:\n{last_msg}"
+
+            # Guardar y enviar la respuesta
+            save_message("user", user_text)
+            save_message("assistant", reply)
+            await update.message.reply_text(reply)
+            return
+        except Exception as e:
+            logging.error(f"Error en Open Interpreter: {e}")
+            await update.message.reply_text(f"❌ Error en el motor autónomo: {e}")
             return
 
     # Instanciamos un chat con ejecución automática de herramientas
