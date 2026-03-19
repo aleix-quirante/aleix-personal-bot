@@ -117,30 +117,27 @@ def search_mac_contact(search_name):
 
 
 async def send_whatsapp(contact: str, message: str) -> str:
-    """
-    Usa esta herramienta EXCLUSIVAMENTE cuando el usuario te pida enviar un mensaje a alguien por WhatsApp o Telegram.
-    Argumentos:
-    - contact: El nombre de la persona EXACTO (ej. 'Iñaki', 'Noemi Arans'). Separa adecuadamente el nombre del resto de la frase u órdenes anexas.
-    - message: El texto completo que quieres enviarle.
-    """
+    """Usa esta herramienta para enviar mensajes por WhatsApp."""
     try:
-        import interpreter
+        # 1. Buscar el número en la agenda local (tu herramienta ya existente)
+        number = search_mac_contact(contact)
+        if not number:
+            return f"No encontré el número de {contact} en la agenda."
 
-        # Configuración de seguridad (auto_run en True permite que la IA actúe sin pedir permiso en la terminal)
-        interpreter.auto_run = True
-        interpreter.system_message += "\nEstás ejecutándote en un Mac Mini M4. Tienes permiso total para usar Python, AppleScript o controlar el ratón y teclado para cumplir las órdenes del usuario."
+        # 2. Abrir WhatsApp con el texto preparado
+        texto_url = urllib.parse.quote(message)
+        url_whatsapp = f"whatsapp://send?phone={number}&text={texto_url}"
+        subprocess.run(["open", url_whatsapp])
 
-        # Le pasamos la orden natural para que el Agente decida cómo hacerlo
-        prompt_agente = f"Abre la aplicación de WhatsApp en este Mac, busca el contacto {contact} y envíale exactamente este mensaje: '{message}'. Hazlo controlando el ordenador."
+        # 3. Esperar y pulsar Enter con pyautogui
+        await asyncio.sleep(6)  # Tiempo para que el Mac Mini M4 cargue la ventana
+        import pyautogui
 
-        logging.info(f"Delegando tarea a Open Interpreter: {prompt_agente}")
+        pyautogui.press("enter")
 
-        # Ejecutar en hilo separado para no bloquear el bot de Telegram
-        await asyncio.to_thread(interpreter.chat, prompt_agente)
-
-        return f"Éxito: Orden delegada al motor autónomo (Nate Gentile protocol) para contactar a {contact}."
+        return f"Mensaje enviado físicamente a {contact}."
     except Exception as e:
-        return f"Error al enviar vía Open Interpreter: {str(e)}"
+        return f"Error enviando WhatsApp: {e}"
 
 
 def web_search(query: str) -> str:
@@ -245,10 +242,24 @@ def get_latest_flash_model():
 
 
 # Inicializamos el modelo de Gemini usando auto-descubrimiento (forzado a Pro para mayor inteligencia con herramientas)
+def abrir_aplicacion_mac(app_name: str) -> str:
+    """
+    Usa esta herramienta cuando el usuario te pida abrir una aplicación del Mac (ej. 'la cámara', 'Safari', 'Mail').
+    Argumentos:
+    - app_name: El nombre exacto de la app en macOS. Si pide la cámara, usa 'Photo Booth'.
+    """
+    try:
+        subprocess.run(["open", "-a", app_name], check=True)
+        return f"Aplicación {app_name} abierta correctamente en el Mac."
+    except Exception as e:
+        return f"No se pudo abrir la aplicación {app_name}. Error: {e}"
+
+
 jarvis_model = genai.GenerativeModel(
     model_name="gemini-1.5-pro",
     tools=[
         send_whatsapp,
+        abrir_aplicacion_mac,
         web_search,
         calculator,
         get_weather,
@@ -296,36 +307,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Error al tomar captura: {e}")
             await update.message.reply_text("❌ Error en los sistemas ópticos del Mac.")
-            return
-
-    # 2. Ruteo Forzado a Open Interpreter para acciones físicas o de control de sistema
-    interpreter_keywords = ["envía", "envia", "abre", "mira", "escribe", "busca"]
-    if any(k in user_text.lower().split() for k in interpreter_keywords):
-        logging.info(f"Ruteo forzado a Open Interpreter para el mensaje: {user_text}")
-        try:
-            import interpreter
-
-            interpreter.auto_run = True
-            interpreter.system_message += "\nEstás ejecutándote en un Mac Mini M4. Tienes permiso total para usar Python, AppleScript o controlar el ratón y teclado para cumplir las órdenes del usuario."
-
-            # Ejecutar el comando directamente en Open Interpreter
-            result = await asyncio.to_thread(interpreter.chat, user_text)
-
-            # Formatear el resultado como texto (interpreter.chat suele devolver una lista de mensajes)
-            reply = f"✅ Acción completada por Open Interpreter.\n\nResultado:\n{str(result)}"
-            if isinstance(result, list) and len(result) > 0:
-                last_msg = result[-1].get("content", "")
-                if last_msg:
-                    reply = f"✅ Jarvis ejecutó la acción en local.\n\nRespuesta:\n{last_msg}"
-
-            # Guardar y enviar la respuesta
-            save_message("user", user_text)
-            save_message("assistant", reply)
-            await update.message.reply_text(reply)
-            return
-        except Exception as e:
-            logging.error(f"Error en Open Interpreter: {e}")
-            await update.message.reply_text(f"❌ Error en el motor autónomo: {e}")
             return
 
     # Instanciamos un chat con ejecución automática de herramientas
