@@ -138,15 +138,23 @@ async def send_whatsapp(contact: str, message: str) -> str:
 
         await asyncio.sleep(4)  # Esperar a que la app abra sin bloquear el bot
 
-        # Nuevo script de envío dentro de send_whatsapp
-        script_send = """
+        # Nuevo AppleScript mejorado para 2026
+        script_send = f"""
         tell application "WhatsApp" to activate
-        delay 1.5 -- Tiempo extra para asegurar que la ventana está al frente
+        delay 2 -- Tiempo para que el M4 procese la ventana al frente
         tell application "System Events"
-            keystroke return -- Envía la señal de pulsar la tecla 'Enter'
+            tell process "WhatsApp"
+                set frontmost to true
+                -- Intenta pulsar Enter dos veces por si el primer toque solo enfoca el cuadro
+                key code 36 
+                delay 0.5
+                key code 36
+            end tell
         end tell
         """
-        subprocess.run(["osascript", "-e", script_send], check=True)
+        await asyncio.to_thread(
+            subprocess.run, ["osascript", "-e", script_send], check=True
+        )
         return f"Éxito: Mensaje enviado a {contact}."
     except Exception as e:
         return f"Error al enviar: {str(e)}"
