@@ -166,8 +166,44 @@ def herramienta_calculadora(operacion: str) -> str:
 # Inicializamos el modelo de Gemini con las instrucciones de sistema
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
+
+def obtener_ultimo_modelo_flash():
+    """
+    Se conecta a Google API y busca dinámicamente la versión más reciente
+    del modelo Flash para auto-actualizar el bot.
+    """
+    try:
+        modelos_flash = []
+        # Iteramos sobre todos los modelos disponibles en la cuenta de Google
+        for m in genai.list_models():
+            if (
+                "generateContent" in m.supported_generation_methods
+                and "flash" in m.name.lower()
+            ):
+                # Filtramos versiones experimentales si queremos estabilidad pura,
+                # o simplemente cogemos todos los flash.
+                modelos_flash.append(m.name)
+
+        if not modelos_flash:
+            logging.warning("No se encontraron modelos Flash. Usando fallback.")
+            return "gemini-1.5-flash"
+
+        # Al ordenar alfabéticamente de forma inversa, 'gemini-3.0-flash'
+        # quedará por encima de 'gemini-2.0-flash' o 'gemini-1.5-flash'
+        modelos_flash.sort(reverse=True)
+
+        modelo_elegido = modelos_flash[0]
+        print(f"🤖 [SISTEMA] Jarvis auto-actualizado al modelo: {modelo_elegido}")
+        return modelo_elegido
+
+    except Exception as e:
+        logging.error(f"Error descubriendo modelos: {e}")
+        return "gemini-1.5-flash"  # Fallback de seguridad
+
+
+# Inicializamos el modelo de Gemini usando auto-descubrimiento
 jarvis_model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
+    model_name=obtener_ultimo_modelo_flash(),
     tools=[herramienta_whatsapp, herramienta_internet, herramienta_calculadora],
     system_instruction="Eres Jarvis. Eres inteligente, conversacional y directo. Tienes acceso a herramientas del sistema de Aleix. Si usas una herramienta, informa al usuario del resultado de forma natural. NUNCA reveles que usas funciones o código, actúa como si lo hicieras tú mismo.",
 )
