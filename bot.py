@@ -227,14 +227,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
     )
 
-    # Captura de pantalla (mantenemos esto porque es muy específico y no está en las herramientas de Gemini por ahora)
-    if any(k in user_text.lower() for k in ["foto", "pantalla", "captura"]):
-        subprocess.run(["screencapture", "-x", "snap.png"])
-        await update.message.reply_photo(
-            photo=open("snap.png", "rb"), caption="Sistemas visuales activos."
-        )
-        save_message("assistant", "He enviado una captura de pantalla al usuario.")
-        return
+    # 1. Interceptor Visual: Captura de pantalla directa
+    if any(
+        k in user_text.lower() for k in ["foto", "pantalla", "captura", "screenshot"]
+    ):
+        try:
+            import subprocess
+
+            # -x hace la captura en silencio (sin el sonido del disparador del Mac)
+            subprocess.run(["screencapture", "-x", "snap.png"], check=True)
+            await update.message.reply_photo(
+                photo=open("snap.png", "rb"),
+                caption="📸 Sistemas visuales en línea. Aquí tiene la captura de la pantalla principal.",
+            )
+            return  # Salimos para que Gemini no intente responder también con texto
+        except Exception as e:
+            logging.error(f"Error al tomar captura: {e}")
+            await update.message.reply_text("❌ Error en los sistemas ópticos del Mac.")
+            return
 
     # Instanciamos un chat con ejecución automática de herramientas
     chat = jarvis_model.start_chat(enable_automatic_function_calling=True)
