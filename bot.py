@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.INFO, filename="bot.log")
 
 
 # --- MEMORIA ---
-def init_memory_db():
+def setup_database():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
@@ -258,6 +258,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             import subprocess
 
+            logging.info(
+                "Intentando capturar pantalla (puede salir negra si el Mac está en reposo)."
+            )
             # -x hace la captura en silencio (sin el sonido del disparador del Mac)
             subprocess.run(["screencapture", "-x", "snap.png"], check=True)
             await update.message.reply_photo(
@@ -276,13 +279,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Le pasamos el historial de los últimos mensajes al chat (opcional, si quieres mantener el tuyo de SQLite)
         history = get_context(limit=4)
-        context_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
+        chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in history])
 
         # Mandamos el mensaje a Gemini. ¡ÉL DECIDE QUÉ HACER!
-        full_prompt = f"Historial previo:\n{context_text}\n\nOrden actual: {user_text}"
-        response = await asyncio.to_thread(chat.send_message, full_prompt)
+        full_prompt = f"Historial previo:\n{chat_context}\n\nOrden actual: {user_text}"
+        gemini_response = await asyncio.to_thread(chat.send_message, full_prompt)
 
-        reply = response.text
+        reply = gemini_response.text
 
         # Guardamos y respondemos
         save_message("user", user_text)
@@ -297,7 +300,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 if __name__ == "__main__":
-    init_memory_db()
+    setup_database()
     print("🚀 Jarvis en línea. Mac Mini M4 bajo control.")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
